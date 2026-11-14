@@ -1,0 +1,22 @@
+{
+  "name": "com.verafirefly.vmdcw.core-integration.editor",
+  "references": [
+    "com.verafirefly.vmdcw.editor",
+    "com.verafirefly.vmdcw.runtime",
+    "com.verafirefly.vmdcc",
+    "com.verafirefly.vmdcc.editor"
+  ],
+  "includePlatforms": [
+    "Editor"
+  ],
+  "defineConstraints": [
+    "VMDCW_HAS_VMDCC"
+  ],
+  "versionDefines": [
+    {
+      "name": "com.verafirefly.vmdcc",
+      "expression": "1.0.0",
+      "define": "VMDCW_HAS_VMDCC"
+    }
+  ]
+}

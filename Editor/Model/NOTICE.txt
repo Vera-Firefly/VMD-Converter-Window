@@ -1,0 +1,20 @@
+YYB Miku Skeleton Reference Rig
+
+Source model: YYB式初音ミク_10th_v1.02 / YYB Hatsune Miku_10th_v1.02.pmx
+Modeling, setup, physics setup and costume design: SANMUYYB
+
+Source model comment:
+--YYB式初音ミク_10th_v1.02--
+
+□モデル製作
+モデリング・セットアップ：SANMUYYB
+物理演算・セットアップ：SANMUYYB
+衣装デザイン：SANMUYYB
+
+_model.pmx contains the extracted bone definitions, skeletal/group morphs and
+morph names. Character mesh, textures, materials and physics are not included.
+A new transparent compatibility triangle and material are generated.
+
+The extraction script and compatibility geometry are Apache-2.0. This does not
+relicense the extracted YYB model data; retain and follow the source model's
+terms when using or redistributing that data.

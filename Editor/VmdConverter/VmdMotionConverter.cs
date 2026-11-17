@@ -14,7 +14,7 @@ using Debug = UnityEngine.Debug;
 internal static class VmdMotionConverter
 {
     internal const string DefaultModelPath =
-        "Packages/com.verafirefly.vmdcw/Editor/Model/_model.pmx";
+        "Packages/com.verafirefly.vmdcw/Editor/Model~/_model.pmx";
 
     private const float VmdFrameRate = 30f;
 
@@ -960,7 +960,7 @@ internal static class VmdMotionConverter
         string root = package != null && !string.IsNullOrEmpty(package.resolvedPath)
             ? package.resolvedPath
             : Path.GetFullPath(Path.Combine(Application.dataPath, "..", corePackage));
-        return Path.Combine(root, "Tools", "VmdConverterCore.exe");
+        return Path.Combine(root, "Tools~", "VmdConverterCore.exe");
     }
 
     internal static bool IsMoyuerAvatarToolkitAvailable()

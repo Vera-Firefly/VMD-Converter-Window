@@ -54,6 +54,7 @@ public sealed class MainConverterWindow : EditorWindow
     {
         EnsureFeaturePages();
         vmdConverterPage.OnProjectChange();
+        vpdConversionPage.OnProjectChange();
         Repaint();
     }
 

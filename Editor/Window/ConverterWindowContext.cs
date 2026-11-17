@@ -93,8 +93,17 @@ internal sealed class ConverterWindowContext
     [SerializeField] private int coreThreads;
     internal string CoreExecutablePath
     {
-        get => string.IsNullOrEmpty(coreExecutablePath)
-            ? VmdMotionConverter.GetCoreExecutablePath() : coreExecutablePath;
+        get
+        {
+            string currentDefault = VmdMotionConverter.GetCoreExecutablePath();
+            if (string.IsNullOrEmpty(coreExecutablePath)) return currentDefault;
+            string legacyDefault = Path.Combine(Path.GetDirectoryName(Path.GetDirectoryName(currentDefault)),
+                "Tools", "VmdConverterCore.exe");
+            return string.Equals(coreExecutablePath.Replace('\\', '/'), legacyDefault.Replace('\\', '/'),
+                StringComparison.OrdinalIgnoreCase) || string.Equals(coreExecutablePath.Replace('\\', '/'),
+                "Packages/com.verafirefly.vmdcc/Tools/VmdConverterCore.exe", StringComparison.OrdinalIgnoreCase)
+                ? currentDefault : coreExecutablePath;
+        }
         set => coreExecutablePath = value;
     }
     internal string CoreHpsRigPath { get => coreHpsRigPath; set => coreHpsRigPath = value; }
@@ -165,7 +174,7 @@ internal abstract class ConverterFeaturePage
 {
     protected const float VmdFrameRate = 30f;
     protected const string DefaultMotionStorageFolder =
-        "Assets/VeraFirefly/MMD Play Mode Converter OutPut";
+        "Assets/VmdConverter/OutPut";
     protected static readonly Quaternion MmdToUnityRotation = Quaternion.Euler(0f, 180f, 0f);
 
     [NonSerialized] private ConverterWindowContext attachedContext;
@@ -313,6 +322,10 @@ internal abstract class ConverterFeaturePage
         ref string customFolder,
         string customLabel)
     {
+        VmdMotionConverter.EnsureAssetFolderExists(DefaultMotionStorageFolder);
+        if (string.IsNullOrEmpty(customFolder) ||
+            customFolder == "Assets/VeraFirefly/MMD Play Mode Converter OutPut")
+            customFolder = DefaultMotionStorageFolder;
         string[] labels =
         {
             L("跟随文件: 文件所在位置", "Follow File: File Location", "ファイルに従う: ファイルの場所"),
@@ -326,37 +339,24 @@ internal abstract class ConverterFeaturePage
         if (EditorGUI.EndChangeCheck()) OnStorageSettingChanged();
         if (location != MotionStorageLocation.Custom) return;
 
-        using (new EditorGUILayout.HorizontalScope())
+        DefaultAsset folder = AssetDatabase.LoadAssetAtPath<DefaultAsset>(customFolder);
+        EditorGUI.BeginChangeCheck();
+        DefaultAsset nextFolder = (DefaultAsset)EditorGUILayout.ObjectField(
+            customLabel, folder, typeof(DefaultAsset), false);
+        if (EditorGUI.EndChangeCheck())
         {
-            EditorGUI.BeginChangeCheck();
-            customFolder = EditorGUILayout.TextField(customLabel, customFolder ?? string.Empty);
-            if (EditorGUI.EndChangeCheck()) OnStorageSettingChanged();
-            GUIContent folderIcon = EditorGUIUtility.IconContent("Folder Icon");
-            folderIcon.tooltip = L("选择Assets内的文件夹", "Select a folder inside Assets", "Assets内のフォルダーを選択");
-            if (GUILayout.Button(folderIcon, GUILayout.Width(28f), GUILayout.Height(EditorGUIUtility.singleLineHeight)))
+            string selectedPath = nextFolder == null
+                ? DefaultMotionStorageFolder : AssetDatabase.GetAssetPath(nextFolder);
+            if (AssetDatabase.IsValidFolder(selectedPath) && TryNormalizeAssetFolder(selectedPath, out string normalized))
             {
-                string selectedFolder = EditorUtility.OpenFolderPanel(
-                    customLabel,
-                    AssetFolderToPhysicalPath(customFolder),
-                    string.Empty);
-                if (!string.IsNullOrEmpty(selectedFolder))
-                {
-                    if (TryPhysicalFolderToAssetPath(selectedFolder, out string assetFolder))
-                    {
-                        customFolder = assetFolder;
-                        OnStorageSettingChanged();
-                        GUI.FocusControl(null);
-                    }
-                    else
-                    {
-                        ShowDialog(
-                            customLabel,
-                            L("请选择项目Assets目录内的文件夹。",
-                                "Select a folder inside the project's Assets directory.",
-                                "プロジェクトのAssetsフォルダー内を選択してください。"));
-                    }
-                }
+                customFolder = normalized;
+                OnStorageSettingChanged();
             }
+            else
+                ShowDialog(customLabel,
+                    L("请选择项目Assets目录内的文件夹。",
+                        "Select a folder inside the project's Assets directory.",
+                        "プロジェクトのAssetsフォルダー内を選択してください。"));
         }
 
         if (!TryNormalizeAssetFolder(customFolder, out _))

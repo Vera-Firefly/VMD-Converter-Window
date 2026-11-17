@@ -4,10 +4,13 @@ using System.IO;
 using System.Linq;
 using UnityEditor;
 using UnityEngine;
+using VeraFirefly.VmdConverter.Core.Editor;
 
 [Serializable]
 internal sealed class VpdConversionPage : ConverterFeaturePage
 {
+    private const string DefaultSourceSkeletonFolder = "Assets/VmdConverter/PMX";
+    private enum SourceSkeletonMode { BuiltIn, Manual, Folder }
     private static readonly Color[] DarkEntryColors =
     {
         new Color(0.38f, 0.78f, 1f), new Color(1f, 0.62f, 0.38f),
@@ -27,15 +30,33 @@ internal sealed class VpdConversionPage : ConverterFeaturePage
     [SerializeField] private Vector2 pageScroll;
     [SerializeField] private bool vpdConversionSettingsExpanded = true;
     [SerializeField] private bool vpdRetargetModel;
+    [SerializeField] private bool sourceSkeletonModeInitialized;
+    [SerializeField] private SourceSkeletonMode sourceSkeletonMode;
+    [SerializeField] private string sourceSkeletonFolder = DefaultSourceSkeletonFolder;
+    [SerializeField] private DefaultAsset folderModelAsset;
+    [NonSerialized] private string[] folderModelPaths;
+    [NonSerialized] private string cachedSourceSkeletonFolder;
     [SerializeField] private DefaultAsset vpdModelAsset;
     [SerializeField] private GameObject vpdTargetAvatar;
     [SerializeField] private MotionOutputType vpdOutputType;
-    [SerializeField] private MotionStorageLocation vpdOutputStorageLocation;
+    [SerializeField] private PmxTargetSolveScope vpdTargetSolveScope;
+    [SerializeField] private MotionStorageLocation vpdOutputStorageLocation = MotionStorageLocation.Default;
     [SerializeField] private string customVpdOutputStorageFolder = DefaultMotionStorageFolder;
 
     internal void OnEnable(ConverterWindowContext context, DefaultAsset selected, bool acceptSelection)
     {
         Attach(context);
+        EnsureDefaultFoldersExist();
+        if (!sourceSkeletonModeInitialized)
+        {
+            sourceSkeletonMode = vpdRetargetModel ? SourceSkeletonMode.Manual : SourceSkeletonMode.BuiltIn;
+            sourceSkeletonModeInitialized = true;
+        }
+        if (string.IsNullOrEmpty(sourceSkeletonFolder)) sourceSkeletonFolder = DefaultSourceSkeletonFolder;
+        if (string.IsNullOrEmpty(customVpdOutputStorageFolder) ||
+            customVpdOutputStorageFolder == "Assets/VeraFirefly/MMD Play Mode Converter OutPut")
+            customVpdOutputStorageFolder = DefaultMotionStorageFolder;
+        folderModelPaths = null;
         EnsureVpdEntryState();
         if (acceptSelection && IsVpdAsset(selected))
             AddVpdAsset(vpdAssets, selected);
@@ -62,14 +83,13 @@ internal sealed class VpdConversionPage : ConverterFeaturePage
         Attach(context);
         EditorGUILayout.Space(8f);
         List<string> sourcePaths = GetVpdAssetPaths(vpdAssets);
-        string modelPath = vpdRetargetModel
-            ? AssetDatabase.GetAssetPath(vpdModelAsset)
-            : VmdMotionConverter.DefaultModelPath;
-        bool needsTarget = vpdOutputType == MotionOutputType.TargetCalibratedHumanoid;
+        string modelPath = ResolveVpdModelPath();
+        bool needsTarget = vpdOutputType != MotionOutputType.Humanoid;
         bool canConvert = sourcePaths.Count > 0 &&
                           VmdMotionConverter.IsModelPath(
                               modelPath,
                               VmdMotionConverter.ModelParserMethod.BuiltInManaged) &&
+                          File.Exists(PmxAnimationClipBaker.ToPhysicalPath(modelPath)) &&
                           TryGetVpdOutputStorageFolder(out _) &&
                           (!needsTarget || HasValidHumanoidAnimator(vpdTargetAvatar));
         using (new EditorGUI.DisabledScope(!canConvert))
@@ -99,14 +119,12 @@ internal sealed class VpdConversionPage : ConverterFeaturePage
             if (!vpdConversionSettingsExpanded) return;
 
             EditorGUILayout.Space(5f);
-            vpdOutputType = (MotionOutputType)EditorGUILayout.Popup(
+            int currentOutput = MotionOutputChoices.IndexOf(vpdOutputType, vpdTargetSolveScope);
+            int nextOutput = EditorGUILayout.Popup(
                 L("输出类型", "Output Type", "出力タイプ"),
-                (int)vpdOutputType,
-                new[]
-                {
-                    "Humanoid",
-                    L("目标校准 Humanoid", "Target-calibrated Humanoid", "対象校正Humanoid")
-                });
+                currentOutput, GetMotionOutputChoiceLabels());
+            vpdOutputType = MotionOutputChoices.Values[nextOutput].Type;
+            vpdTargetSolveScope = MotionOutputChoices.Values[nextOutput].Scope;
             if (vpdOutputType == MotionOutputType.TargetCalibratedHumanoid)
             {
                 EditorGUILayout.HelpBox(
@@ -115,25 +133,36 @@ internal sealed class VpdConversionPage : ConverterFeaturePage
                         "対象Avatar骨格で校正後、標準Humanoid Root/Muscleカーブを出力します。対象AvatarのHumanPoseHandler校正処理が追加されるため、通常は変換が遅くなります。"),
                     MessageType.Info);
             }
+            else if (vpdOutputType == MotionOutputType.TargetFk)
+                EditorGUILayout.HelpBox(
+                    L("输出绑定到指定 Avatar 的 Transform/FK 曲线，需要有效的 Humanoid Animator。",
+                        "Writes Transform/FK curves for the selected Avatar. A valid Humanoid Animator is required.",
+                        "指定したAvatarのTransform/FKカーブを出力します。有効なHumanoid Animatorが必要です。"),
+                    MessageType.Info);
 
             EditorGUILayout.Space(5f);
             vpdTargetAvatar = (GameObject)EditorGUILayout.ObjectField(
-                vpdOutputType == MotionOutputType.TargetCalibratedHumanoid
-                    ? L("目标 Avatar", "Target Avatar", "対象Avatar")
-                    : L("Morph目标 Avatar（可选）", "Morph Target Avatar (Optional)", "Morph対象Avatar（任意）"),
+                L("指定 Avatar", "Avatar GameObject", "Avatar GameObject"),
                 vpdTargetAvatar,
                 typeof(GameObject),
                 true);
+            if (vpdOutputType == MotionOutputType.Humanoid)
+                EditorGUILayout.HelpBox(
+                    L("Avatar 可选，用于匹配形态键。", "Avatar is optional and is used for morph mapping.",
+                        "Avatarは任意です。モーフの対応付けに使用します。"), MessageType.None);
+            else if (vpdTargetAvatar != null && !HasValidHumanoidAnimator(vpdTargetAvatar))
+                EditorGUILayout.HelpBox(
+                    L("指定的 Avatar 需要有效的 Humanoid Animator。", "The selected Avatar requires a valid Humanoid Animator.",
+                        "指定したAvatarには有効なHumanoid Animatorが必要です。"), MessageType.Warning);
 
-            EditorGUILayout.Space(5f);
-            DrawVpdConversionModelSettings();
-
-            EditorGUILayout.Space(5f);
+            ConverterWindowGui.DrawEntrySeparator();
             DrawStorageLocationSetting(
                 L("输出位置", "Output Location", "出力場所"),
                 ref vpdOutputStorageLocation,
                 ref customVpdOutputStorageFolder,
                 L("输出存储位置", "Output Storage Location", "出力保存場所"));
+            ConverterWindowGui.DrawEntrySeparator();
+            DrawVpdConversionModelSettings();
             EditorGUILayout.Space(5f);
             EditorGUILayout.HelpBox(
                 L("每个VPD固定生成一个.anim。姿势写入0与1/30秒两个相同关键帧，不进行密集采样。",
@@ -145,32 +174,115 @@ internal sealed class VpdConversionPage : ConverterFeaturePage
 
     private void DrawVpdConversionModelSettings()
     {
-        vpdRetargetModel = EditorGUILayout.Toggle(
-            L("重定向模型", "Retarget Model", "モデルを置換"),
-            vpdRetargetModel);
-        if (!vpdRetargetModel) return;
+        EnsureDefaultFoldersExist();
+        int nextMode = EditorGUILayout.Popup(
+            L("重定向源骨架", "Retarget Source Skeleton", "リターゲット元骨格"),
+            (int)sourceSkeletonMode,
+            new[] { L("内置", "Built-in", "内蔵"), L("手动选择", "Manual", "手動選択"),
+                L("从文件夹", "From Folder", "フォルダーから") });
+        sourceSkeletonMode = (SourceSkeletonMode)nextMode;
+        if (sourceSkeletonMode == SourceSkeletonMode.BuiltIn) return;
 
+        if (sourceSkeletonMode == SourceSkeletonMode.Folder)
+        {
+            DefaultAsset folder = AssetDatabase.LoadAssetAtPath<DefaultAsset>(sourceSkeletonFolder);
+            EditorGUI.BeginChangeCheck();
+            DefaultAsset nextFolder = (DefaultAsset)EditorGUILayout.ObjectField(
+                L("目标文件夹", "Target Folder", "対象フォルダー"), folder, typeof(DefaultAsset), false);
+            if (EditorGUI.EndChangeCheck())
+            {
+                string nextPath = AssetDatabase.GetAssetPath(nextFolder);
+                if (nextFolder == null || AssetDatabase.IsValidFolder(nextPath))
+                {
+                    sourceSkeletonFolder = nextFolder == null ? DefaultSourceSkeletonFolder : nextPath;
+                    folderModelPaths = null;
+                }
+                else
+                    ShowDialog(L("目标文件夹", "Target Folder", "対象フォルダー"),
+                        L("请拖入项目文件夹。", "Select a project folder.", "プロジェクトのフォルダーを選択してください。"));
+            }
+            EnsureFolderModelsLoaded();
+            string selectedPath = AssetDatabase.GetAssetPath(folderModelAsset);
+            int current = Array.IndexOf(folderModelPaths, selectedPath);
+            string[] labels = folderModelPaths.Length == 0
+                ? new[] { L("(无 PMX 文件)", "(No PMX files)", "(PMXなし)") }
+                : folderModelPaths.Select(path => path.Substring(sourceSkeletonFolder.Length + 1)).ToArray();
+            using (new EditorGUI.DisabledScope(folderModelPaths.Length == 0))
+            {
+                int next = EditorGUILayout.Popup(
+                    L("指定目标(PMX骨架)", "Select Target (PMX Skeleton)", "対象指定(PMX骨格)"),
+                    Mathf.Max(0, current), labels);
+                if (folderModelPaths.Length > 0 && next != current)
+                {
+                    folderModelAsset = AssetDatabase.LoadAssetAtPath<DefaultAsset>(folderModelPaths[next]);
+                }
+            }
+            if (!AssetDatabase.IsValidFolder(sourceSkeletonFolder))
+                EditorGUILayout.HelpBox(L("文件夹不存在：", "Folder not found: ", "フォルダーが見つかりません：") +
+                    sourceSkeletonFolder, MessageType.Info);
+            return;
+        }
+
+        EditorGUI.BeginChangeCheck();
         DefaultAsset nextModel = (DefaultAsset)EditorGUILayout.ObjectField(
-            L("MMD模型", "MMD Model", "MMDモデル"),
+            L("指定目标(PMX骨架)", "Select Target (PMX Skeleton)", "対象指定(PMX骨格)"),
             vpdModelAsset,
             typeof(DefaultAsset),
             false);
-        if (nextModel == vpdModelAsset) return;
+        if (!EditorGUI.EndChangeCheck()) return;
 
-        string modelPath = nextModel != null
-            ? AssetDatabase.GetAssetPath(nextModel)
-            : string.Empty;
-        if (nextModel != null && !VmdMotionConverter.IsModelPath(
-                modelPath, VmdMotionConverter.ModelParserMethod.BuiltInManaged))
+        string modelPath = nextModel != null ? AssetDatabase.GetAssetPath(nextModel) : string.Empty;
+        if (nextModel != null && !modelPath.EndsWith(".pmx", StringComparison.OrdinalIgnoreCase))
         {
             ShowDialog(
-                L("MMD模型", "MMD Model", "MMDモデル"),
-                L("内置解析方案仅支持.pmx模型。",
-                    "The built-in parser supports .pmx models only.",
-                    "内蔵解析方式は.pmxモデルのみ対応しています。"));
+                L("指定目标(PMX骨架)", "Select Target (PMX Skeleton)", "対象指定(PMX骨格)"),
+                L("请选择 .pmx 文件。", "Select a .pmx file.", ".pmxファイルを選択してください。"));
             return;
         }
         vpdModelAsset = nextModel;
+
+    }
+
+    private void EnsureFolderModelsLoaded()
+    {
+        VmdMotionConverter.EnsureAssetFolderExists(DefaultSourceSkeletonFolder);
+        if (folderModelPaths != null && cachedSourceSkeletonFolder == sourceSkeletonFolder) return;
+        cachedSourceSkeletonFolder = sourceSkeletonFolder;
+        folderModelPaths = AssetDatabase.IsValidFolder(sourceSkeletonFolder)
+            ? AssetDatabase.FindAssets(string.Empty, new[] { sourceSkeletonFolder })
+                .Select(AssetDatabase.GUIDToAssetPath)
+                .Where(path => path.EndsWith(".pmx", StringComparison.OrdinalIgnoreCase) &&
+                    !AssetDatabase.IsValidFolder(path))
+                .OrderBy(path => path, StringComparer.OrdinalIgnoreCase).ToArray()
+            : Array.Empty<string>();
+        if (!folderModelPaths.Contains(AssetDatabase.GetAssetPath(folderModelAsset)))
+            folderModelAsset = folderModelPaths.Length > 0
+                ? AssetDatabase.LoadAssetAtPath<DefaultAsset>(folderModelPaths[0]) : null;
+    }
+
+    private string ResolveVpdModelPath()
+    {
+        switch (sourceSkeletonMode)
+        {
+            case SourceSkeletonMode.Manual:
+                return AssetDatabase.GetAssetPath(vpdModelAsset);
+            case SourceSkeletonMode.Folder:
+                EnsureFolderModelsLoaded();
+                return AssetDatabase.GetAssetPath(folderModelAsset);
+            default:
+                return VmdMotionConverter.DefaultModelPath;
+        }
+    }
+
+    private static void EnsureDefaultFoldersExist()
+    {
+        VmdMotionConverter.EnsureAssetFolderExists(DefaultMotionStorageFolder);
+        VmdMotionConverter.EnsureAssetFolderExists(DefaultSourceSkeletonFolder);
+    }
+
+    internal void OnProjectChange()
+    {
+        folderModelPaths = null;
     }
 
     private void DrawVpdFileList()
@@ -369,13 +481,19 @@ internal sealed class VpdConversionPage : ConverterFeaturePage
         VpdAnimationConverter converter = null;
         try
         {
-            bool targetCalibrated = vpdOutputType == MotionOutputType.TargetCalibratedHumanoid;
             converter = new VpdAnimationConverter(
                 modelPath,
                 targetAvatar,
-                targetCalibrated,
+                vpdOutputType,
                 curveReductionError,
-                targetUpperLimbInverseSolve);
+                targetUpperLimbInverseSolve,
+                vpdTargetSolveScope,
+                new PmxDebugTargetFkBakeOptions
+                {
+                    TargetSolveScope = vpdTargetSolveScope,
+                    UpperLimbInverseSolve = vpdTargetSolveScope == PmxTargetSolveScope.All ||
+                        vpdTargetSolveScope == PmxTargetSolveScope.Arm
+                });
 
             for (int fileIndex = 0; fileIndex < sourcePaths.Count; fileIndex++)
             {

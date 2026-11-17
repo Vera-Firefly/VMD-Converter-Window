@@ -9,7 +9,8 @@ using VeraFirefly.VmdConverter.Core.Editor;
 internal sealed class VpdAnimationConverter : IDisposable
 {
     private readonly GameObject targetAvatar;
-    private readonly bool targetCalibrated;
+    private readonly MotionOutputType outputType;
+    private readonly PmxDebugTargetFkBakeOptions fkOptions;
     private PmxHumanoidAnimationClipBaker.BatchSession batchSession;
 
     internal static string GetOutputPath(string sourcePath, string outputFolder)
@@ -26,9 +27,11 @@ internal sealed class VpdAnimationConverter : IDisposable
     internal VpdAnimationConverter(
         string modelPath,
         GameObject targetAvatar,
-        bool targetCalibrated,
+        MotionOutputType outputType,
         float curveReductionError,
-        bool debugTargetUpperLimbInverseSolve)
+        bool debugTargetUpperLimbInverseSolve,
+        PmxTargetSolveScope targetSolveScope = PmxTargetSolveScope.Normal,
+        PmxDebugTargetFkBakeOptions fkOptions = null)
     {
         PmxModel model = PmxModelCache.Load(modelPath);
         var options = new PmxAnimationClipBakerOptions
@@ -38,10 +41,12 @@ internal sealed class VpdAnimationConverter : IDisposable
             CoordinateConversion = PmxCoordinateConversion.RotateY180,
             BakeMorphs = true,
             CurveReductionError = Mathf.Clamp(curveReductionError, 0f, 0.001f),
-            DebugTargetUpperLimbInverseSolve = debugTargetUpperLimbInverseSolve
+            DebugTargetUpperLimbInverseSolve = debugTargetUpperLimbInverseSolve,
+            TargetSolveScope = targetSolveScope
         };
         this.targetAvatar = targetAvatar;
-        this.targetCalibrated = targetCalibrated;
+        this.outputType = outputType;
+        this.fkOptions = fkOptions ?? new PmxDebugTargetFkBakeOptions { TargetSolveScope = targetSolveScope };
         batchSession = new PmxHumanoidAnimationClipBaker.BatchSession(model, options);
     }
 
@@ -55,7 +60,15 @@ internal sealed class VpdAnimationConverter : IDisposable
         VmdMotion motion = VpdParser.Parse(PmxAnimationClipBaker.ToPhysicalPath(sourceAssetPath));
         PmxHumanoidAnimationClipBaker.PreparedMotion prepared = batchSession.Prepare(motion, 1);
         PmxAnimationBakeReport report;
-        if (targetCalibrated)
+        if (outputType == MotionOutputType.TargetFk)
+        {
+            report = batchSession.Debug_BakeTargetFk(prepared, targetAvatar, fkOptions,
+                (value, message) => progress?.Invoke(0.12f + value * 0.78f, message));
+            if (targetAvatar != null)
+                report.BoundMorphCount = PmxAnimationClipBaker.BakeMorphCurves(
+                    report.Clip, motion, targetAvatar.transform);
+        }
+        else if (outputType == MotionOutputType.TargetCalibratedHumanoid)
         {
             report = batchSession.BakeTargetHumanoid(
                 prepared, targetAvatar,
@@ -70,6 +83,16 @@ internal sealed class VpdAnimationConverter : IDisposable
                 prepared,
                 targetAvatar != null ? targetAvatar.transform : null,
                 (value, message) => progress?.Invoke(0.12f + value * 0.78f, message));
+        }
+
+        // VPD is a static pose. Keep its duration even when the FK baker reduces
+        // constant curves, and avoid solver warm-up differences between samples.
+        foreach (EditorCurveBinding binding in AnimationUtility.GetCurveBindings(report.Clip))
+        {
+            AnimationCurve curve = AnimationUtility.GetEditorCurve(report.Clip, binding);
+            float value = curve.Evaluate(0f);
+            AnimationUtility.SetEditorCurve(report.Clip, binding,
+                AnimationCurve.Linear(0f, value, 1f / 30f, value));
         }
 
         progress?.Invoke(0.92f, "Writing AnimationClip asset");

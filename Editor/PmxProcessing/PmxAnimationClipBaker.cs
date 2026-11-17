@@ -245,6 +245,14 @@ namespace VeraFirefly.VmdConverter.Core.Editor
         {
             if (string.IsNullOrEmpty(assetOrPhysicalPath)) throw new ArgumentNullException(nameof(assetOrPhysicalPath));
             if (Path.IsPathRooted(assetOrPhysicalPath)) return assetOrPhysicalPath;
+            if (assetOrPhysicalPath.StartsWith("Packages/", StringComparison.Ordinal))
+            {
+                UnityEditor.PackageManager.PackageInfo package =
+                    UnityEditor.PackageManager.PackageInfo.FindForAssetPath(assetOrPhysicalPath);
+                if (package != null && !string.IsNullOrEmpty(package.resolvedPath))
+                    return Path.GetFullPath(Path.Combine(package.resolvedPath,
+                        assetOrPhysicalPath.Substring(package.assetPath.Length).TrimStart('/', '\\')));
+            }
             string projectRoot = Path.GetFullPath(Path.Combine(Application.dataPath, ".."));
             return Path.GetFullPath(Path.Combine(projectRoot, assetOrPhysicalPath));
         }

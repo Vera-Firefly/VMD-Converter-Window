@@ -223,7 +223,7 @@ const scriptDirectory = path.dirname(fileURLToPath(import.meta.url));
 const sourceArgument = process.argv[2];
 if (!sourceArgument) throw new Error('Usage: node Tools~/generate-reference-pmx.mjs "YYB Hatsune Miku_10th_v1.02.pmx" [output.pmx]');
 const sourcePath = path.resolve(sourceArgument);
-const outputPath = path.resolve(process.argv[3] ?? path.join(scriptDirectory, "../Editor/Model/_model.pmx"));
+const outputPath = path.resolve(process.argv[3] ?? path.join(scriptDirectory, "../Editor/Model~/_model.pmx"));
 if (sourcePath.toLowerCase() === outputPath.toLowerCase()) throw new Error("Output must not overwrite the source model");
 const sourceData = fs.readFileSync(sourcePath);
 const source = readPmx(sourceData);

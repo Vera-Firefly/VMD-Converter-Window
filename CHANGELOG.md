@@ -1,6 +1,18 @@
 # Changelog / 更新记录
 
-## Unreleased
+## 1.1.0 — 2026-11-17
+
+- VPD 转换页对齐动作页的九种输出模式、Avatar 与源骨架选择、默认输出目录及分隔布局。
+- Aligned VPD conversion with the motion page's nine output modes, Avatar and source skeleton selectors, default output folder and section separators.
+
+- 默认输出目录改为 `Assets/VmdConverter/OutPut`，自定义输出支持文件夹拖入；自动创建默认输出与 PMX 文件夹，转换设置三块之间增加分隔线。
+- Changed the default output folder to `Assets/VmdConverter/OutPut`, added folder drop fields for custom output, automatic default folder creation and separators between conversion settings.
+
+- 动作转换页固定直接导出动画，移除转换方案及元数据存储位置选项。
+- The motion page now always exports animations directly. Removed the conversion scheme and metadata storage selectors.
+
+- 修复手动指定预制体 Avatar 后转换仍被禁用的问题；重定向源骨架新增内置、手动选择及从文件夹三种选择方式。
+- Fixed conversion remaining disabled for manually selected prefab Avatars. Source skeletons can now be selected from the built-in rig, a PMX asset or a folder list.
 
 - 默认 PMX 改用 YYB 式 Miku 骨架；生成工具从原模型提取骨骼及 IK 设置。
 - Updated the default PMX to the YYB Miku skeleton; the generator extracts bones and IK from the source model.

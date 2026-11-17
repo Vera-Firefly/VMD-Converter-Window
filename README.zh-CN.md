@@ -6,15 +6,21 @@ Unity 2022.3+ 的 VMD 动作、镜头和 VPD 转换窗口，不依赖 VRCSDK。
 
 ## 安装与升级
 
-将本仓库作为 Unity 包安装，或将完整目录放到 `Packages/com.verafirefly.vmdcw`。内置解析可独立使用；Core 集成要求 **VMDCC 1.0.0 或更新兼容版本**，请同时升级 VMDCC 包及其 Tools 运行文件。在 PMX 转换设置中选择 Core 及配套 EXE 路径。
+将本仓库作为 Unity 包安装，或将完整目录放到 `Packages/com.verafirefly.vmdcw`。内置解析可独立使用；Core 集成要求 **VMDCC 1.0.0 或更新兼容版本**，请同时升级 VMDCC 包及其 Tools~ 运行文件。在 PMX 转换设置中选择 Core 及配套 EXE 路径。
 
 通过 Unity 菜单 `VeraFirefly > VMD Converter > VMD Converter` 打开窗口。
 
 ## 动作输出
 
+动作转换页直接导出 `.anim`，不生成元数据 `.asset`，默认保存到 `Assets/VmdConverter/OutPut`。在“输出位置”选择“自定义”后，可将 Assets 内的文件夹拖入“输出存储位置”。默认输出目录和 PMX 目录 `Assets/VmdConverter/PMX` 不存在时自动创建。
+
 动作转换、内置解析调试和 VMDCC 调试提供 `humanoid-ik`、`target-humanoid`、`target-fk` 以及两种 target 的 `-all`／`-arm`／`-leg`，共九种输出模式。各模式均输出整身动作。Normal 校准目标根运动、躯干和下肢，上肢采用源 Humanoid 姿态；Leg 与 Normal 相同；All 包含目标上肢反解；Arm 对上肢反解并保留源 Humanoid 躯干、下肢。内置调试另提供通用 PMX 骨骼、下肢 FK＋其余 Humanoid 输出。
 
-存在 VRCSDK 时可通过激活的 Avatar Descriptor 识别目标；否则在窗口中指定 GameObject。更换目标时重新加载形态键列表，未映射形态键按源名称写入 Body。
+存在 VRCSDK 时可通过激活的 Avatar Descriptor 识别目标；否则在窗口中指定场景 GameObject 或预制体。目标输出需要有效的 Humanoid Animator。更换目标时重新加载形态键列表，未映射形态键按源名称写入 Body。
+
+“重定向源骨架”可选择“内置”“手动选择”或“从文件夹”。内置使用包内 PMX 源骨架；手动选择时将 `.pmx` 拖入“指定目标(PMX骨架)”；从文件夹时将文件夹拖入“目标文件夹”，再从列表选择 PMX。默认文件夹为 `Assets/VmdConverter/PMX`，列表包含子文件夹内的 PMX。
+
+VPD 转换页提供相同的九种输出模式和源骨架选择，每个 VPD 导出一份 `.anim` 姿势。目标 Humanoid、FK 模式需要在“指定 Avatar”中提供有效的 Humanoid；普通 Humanoid 模式下此字段可选，用于匹配形态键。默认输出目录、文件夹拖入和自动创建规则与动作页相同。
 
 ## 求解方式
 
@@ -33,3 +39,5 @@ PMX 设置可生成单行控制台命令。离线 target 模式必须指定 FBX 
 ## 脚本接口
 
 使用 `VmdBatchConversionSession`、`VmdConversionSettings` 和 `VmdClipOutput` 批量转换；`ConvertPreparedPoseToClip` 可读取外部 PMX 姿态。目标范围由 `BakeOptions.TargetSolveScope` 与 `FkOptions.TargetSolveScope` 设置。Unity 场景、Avatar、曲线及资源操作必须在 Editor 主线程执行。Core 外部接口及构建见 [VMDCC 文档](https://github.com/Vera-Firefly/VMD-Converter-Core)。
+
+目录结构：`Editor/Model~` 存放内置 PMX 参考骨架及许可说明，`Tools~` 存放离线生成脚本；均从磁盘读取，不需要 Unity 元数据。Core 程序使用 VMDCC 的 `Tools~/VmdConverterCore.exe`。

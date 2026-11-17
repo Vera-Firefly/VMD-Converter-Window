@@ -6,15 +6,21 @@ Unity 2022.3+ Editor window for VMD motion, camera and VPD conversion. VRCSDK is
 
 ## Install and upgrade
 
-Install this repository as a Unity package, or copy its complete contents to `Packages/com.verafirefly.vmdcw`. The built-in parser works independently of VMDCC. Core integration requires **VMDCC 1.0.0 or a later compatible version**; upgrade the Core package and its complete Tools runtime together. Select Core and the matching executable path in PMX conversion settings.
+Install this repository as a Unity package, or copy its complete contents to `Packages/com.verafirefly.vmdcw`. The built-in parser works independently of VMDCC. Core integration requires **VMDCC 1.0.0 or a later compatible version**; upgrade the Core package and its complete Tools~ runtime together. Select Core and the matching executable path in PMX conversion settings.
 
 Open `VeraFirefly > VMD Converter > VMD Converter` from the Unity menu.
 
 ## Motion output
 
+The motion page exports `.anim` directly without metadata `.asset` files, defaulting to `Assets/VmdConverter/OutPut`. Select Custom under Output Location, then drag a folder from Assets into Output Storage Location. The default output folder and `Assets/VmdConverter/PMX` folder are created automatically when missing.
+
 The motion page, built-in debug page and Core debug page list nine output modes: `humanoid-ik`, `target-humanoid`, `target-fk`, and the `-all`, `-arm`, `-leg` variants of each target mode. All modes export whole-body motion. Normal and leg modes fit target root, torso and legs while keeping the source Humanoid upper limb; all includes target upper-limb reconstruction; arm reconstructs target arms while retaining source body and legs. Built-in debugging also offers generic PMX bones and lower-body FK with a Humanoid remainder.
 
-When VRCSDK is present, an active Avatar Descriptor can identify the target. Otherwise select a GameObject in the window. Changing the target reloads morph mappings; unmapped morphs retain their source name under Body.
+When VRCSDK is present, an active Avatar Descriptor can identify the target. Otherwise select a scene GameObject or prefab in the window. Target output requires a valid Humanoid Animator. Changing the target reloads morph mappings; unmapped morphs retain their source name under Body.
+
+Retarget Source Skeleton offers Built-in, Manual and From Folder. Built-in uses the bundled PMX skeleton. Manual accepts a `.pmx` in Select Target (PMX Skeleton). From Folder accepts a project folder in Target Folder and lists its PMX files, including subfolders. The default folder is `Assets/VmdConverter/PMX`.
+
+The VPD page offers the same nine output modes and source skeleton choices, exporting one pose `.anim` per VPD. Target Humanoid and FK modes require a valid Humanoid in Avatar GameObject. For standard Humanoid output, the Avatar is optional and supplies morph mappings. Output folders, folder drop fields and automatic default folder creation follow the motion page.
 
 ## Conversion routes
 
@@ -33,3 +39,5 @@ Interpolation alone does not resolve Unity Humanoid's rotation-branch limitation
 ## Scripting
 
 Use `VmdBatchConversionSession`, `VmdConversionSettings` and `VmdClipOutput` for batch conversion; `ConvertPreparedPoseToClip` consumes external PMX poses. Set target regions through `BakeOptions.TargetSolveScope` and `FkOptions.TargetSolveScope`. Run Unity scene, Avatar, curve and asset operations on the Editor main thread. See the [VMDCC manual](https://github.com/Vera-Firefly/VMD-Converter-Core) for external APIs and builds.
+
+Package layout: `Editor/Model~` holds the bundled PMX reference rig and its notices; `Tools~` holds the offline generator. Both are read from disk without Unity metadata. The Core executable is resolved from VMDCC's `Tools~/VmdConverterCore.exe`.

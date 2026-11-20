@@ -65,6 +65,11 @@ internal sealed class VmdConverterPage : ConverterFeaturePage
     [SerializeField] private int selectedModelIndex;
     [SerializeField] private GameObject manualTargetModel;
     [SerializeField] private bool useExternalWorker;
+    [SerializeField] private List<MotionIkSettings> motionIkSettings = new List<MotionIkSettings>();
+
+    [NonSerialized] private string cachedIkModelPath;
+    [NonSerialized] private PmxBone[] cachedIkBones;
+    [NonSerialized] private string cachedIkError;
 
     [NonSerialized] private List<GameObject> pipelineModels = new List<GameObject>();
     [NonSerialized] private bool automaticAvatarModelsFound;
@@ -87,6 +92,15 @@ internal sealed class VmdConverterPage : ConverterFeaturePage
         BuiltIn,
         Manual,
         Folder
+    }
+
+    [Serializable]
+    private sealed class MotionIkSettings
+    {
+        public string MotionGuid;
+        public string SkeletonIdentity;
+        public bool Expanded = true;
+        public List<VmdIkOverride> Items = new List<VmdIkOverride>();
     }
 
     private sealed class ManagedPreparationJob
@@ -125,6 +139,7 @@ internal sealed class VmdConverterPage : ConverterFeaturePage
             sourceSkeletonModeInitialized = true;
         }
         folderModelPaths = null;
+        cachedIkModelPath = null;
         if (pipelineModels == null) pipelineModels = new List<GameObject>();
         EnsureMotionVmdEntryState();
         if (convertedMotionEntries == null) convertedMotionEntries = new List<ConvertedMotionEntry>();
@@ -158,6 +173,7 @@ internal sealed class VmdConverterPage : ConverterFeaturePage
     internal void OnProjectChange()
     {
         folderModelPaths = null;
+        cachedIkModelPath = null;
         InvalidateMappingTargetCache();
         convertedMotionResourcesDirty = true;
         ScanPipelineModels();
@@ -276,8 +292,96 @@ internal sealed class VmdConverterPage : ConverterFeaturePage
         if (convertedMotionEntries.Count == 0) return;
 
         EditorGUILayout.Space(8f);
+        ConverterWindowGui.DrawSectionTitle(L("IK切换", "IK Switching", "IK切り替え"));
+        DrawMotionIkSettings();
+
+        EditorGUILayout.Space(8f);
         ConverterWindowGui.DrawSectionTitle(L("模型形态键映射", "Model BlendShape Mapping", "モデルモーフマッピング"));
         DrawModelMappings();
+    }
+
+    private MotionIkSettings GetMotionIkSettings(string motionPath, string modelPath)
+    {
+        if (motionIkSettings == null) motionIkSettings = new List<MotionIkSettings>();
+        string motionGuid = AssetDatabase.AssetPathToGUID(motionPath);
+        string skeleton = AssetDatabase.AssetPathToGUID(modelPath);
+        if (string.IsNullOrEmpty(skeleton)) skeleton = modelPath;
+        MotionIkSettings settings = motionIkSettings.FirstOrDefault(item =>
+            item.MotionGuid == motionGuid && item.SkeletonIdentity == skeleton);
+        if (settings == null)
+        {
+            settings = new MotionIkSettings { MotionGuid = motionGuid, SkeletonIdentity = skeleton };
+            motionIkSettings.Add(settings);
+        }
+        if (settings.Items == null) settings.Items = new List<VmdIkOverride>();
+        return settings;
+    }
+
+    private void DrawMotionIkSettings()
+    {
+        string modelPath = ResolveMotionModelPath();
+        if (cachedIkModelPath != modelPath)
+        {
+            cachedIkModelPath = modelPath;
+            cachedIkBones = Array.Empty<PmxBone>();
+            cachedIkError = null;
+            try
+            {
+                if (!IsAvailableSourceSkeleton(modelPath))
+                    cachedIkError = L("请选择有效的 PMX 源骨架。", "Select a valid PMX source skeleton.", "有効なPMXソース骨格を選択してください。");
+                else
+                    cachedIkBones = PmxModelCache.Load(modelPath).Bones
+                        .Where(bone => bone.Ik != null).ToArray();
+            }
+            catch (Exception exception) { cachedIkError = exception.Message; }
+        }
+        if (!string.IsNullOrEmpty(cachedIkError))
+        {
+            EditorGUILayout.HelpBox(cachedIkError, MessageType.Warning);
+            return;
+        }
+        string[] choices = { L("跟随 VMD", "Follow VMD", "VMDに従う"),
+            L("强制开启", "Force On", "常に有効"), L("强制关闭", "Force Off", "常に無効") };
+        foreach (ConvertedMotionEntry entry in convertedMotionEntries)
+        {
+            MotionIkSettings settings = GetMotionIkSettings(entry.Path, modelPath);
+            ConverterWindowGui.DrawOutlinedSetting(() =>
+            {
+                settings.Expanded = EditorGUILayout.Foldout(settings.Expanded,
+                    entry.DisplayName + L("-IK列表", "-IK List", "-IK一覧"), true);
+                if (!settings.Expanded) return;
+                if (cachedIkBones == null || cachedIkBones.Length == 0)
+                {
+                    EditorGUILayout.HelpBox(L("源骨架没有 IK。", "The source skeleton has no IK.",
+                        "ソース骨格にIKがありません。"), MessageType.Info);
+                    return;
+                }
+                using (new EditorGUILayout.HorizontalScope())
+                {
+                    GUILayout.Label(L("源骨架 IK", "Source Skeleton IK", "ソース骨格IK"),
+                        EditorStyles.boldLabel, GUILayout.MinWidth(0f), GUILayout.ExpandWidth(true));
+                    GUILayout.Label(L("切换设置", "Override", "切り替え設定"),
+                        EditorStyles.boldLabel, GUILayout.Width(130f));
+                }
+                foreach (PmxBone bone in cachedIkBones)
+                {
+                    string name = VmdIkOverrideBatch.GetBoneName(bone);
+                    VmdIkOverride setting = settings.Items.FirstOrDefault(item => item.BoneName == name);
+                    if (setting == null)
+                    {
+                        setting = new VmdIkOverride { BoneName = name };
+                        settings.Items.Add(setting);
+                    }
+                    using (new EditorGUILayout.HorizontalScope())
+                    {
+                        EditorGUILayout.LabelField(new GUIContent(name, name),
+                            GUILayout.MinWidth(0f), GUILayout.ExpandWidth(true));
+                        setting.Mode = (VmdIkOverrideMode)EditorGUILayout.Popup((int)setting.Mode,
+                            choices, GUILayout.Width(130f));
+                    }
+                }
+            });
+        }
     }
 
     private void DrawMotionConversionSettings()
@@ -978,6 +1082,8 @@ internal sealed class VmdConverterPage : ConverterFeaturePage
         bool cancelled = false;
         var errors = new List<string>();
         AnimationClip lastClip = null;
+        using var ikBatch = new VmdIkOverrideBatch();
+        PmxModel ikModel = PmxModelCache.Load(modelPath);
         GetMappingTargetCache(
             targetModel,
             out List<VmdMotionConverter.BlendShapeTarget> targets,
@@ -1001,7 +1107,9 @@ internal sealed class VmdConverterPage : ConverterFeaturePage
                     modelPath,
                     modelParserMethod,
                     curveReductionError,
-                    out List<VmdMotionConversionData.MorphRecord> morphs);
+                    out List<VmdMotionConversionData.MorphRecord> morphs,
+                    ikBatch.Prepare(VmdMotionConverter.GetPhysicalVmdPath(sourcePath),
+                        ikModel, GetMotionIkSettings(sourcePath, modelPath).Items));
                 entry.Data.morphs = morphs;
                 VmdMotionConversionData.ModelMapping mapping =
                     VmdMotionConverter.GetOrCreateMapping(
@@ -1078,9 +1186,11 @@ internal sealed class VmdConverterPage : ConverterFeaturePage
         var jobs=new List<VmdStandaloneAnimJob>(); var outputs=new List<string>();
         string folder=Path.Combine(Path.GetTempPath(),"VmdcwMaps",Guid.NewGuid().ToString("N"));
         AnimationClip last=null;
+        using var ikBatch = new VmdIkOverrideBatch();
         try
         {
             Directory.CreateDirectory(folder);
+            PmxModel ikModel = PmxModelCache.Load(modelPath);
             GetMappingTargetCache(targetModel, out List<VmdMotionConverter.BlendShapeTarget> targets,
                 out _,out _,out Dictionary<string,VmdMotionConverter.BlendShapeTarget> sameName);
             foreach(string source in sourcePaths)
@@ -1097,8 +1207,12 @@ internal sealed class VmdConverterPage : ConverterFeaturePage
                     VmdStandaloneAnimConverter.WriteMorphMap(mapPath,mapping.mappings.Where(m=>!string.IsNullOrEmpty(m.source)&&!string.IsNullOrEmpty(m.target))
                         .Select(m=>new VmdStandaloneMorphTarget {Source=m.source,Name=m.target,Path=m.targetPath}).ToArray());
                 }
-                jobs.Add(new VmdStandaloneAnimJob {VmdPath=PmxAnimationClipBaker.ToPhysicalPath(source),OutputPath=Path.Combine(folder,jobs.Count.ToString(),Path.GetFileName(output)),
-                    ExpressionVmdPath=GetExpressionPhysicalVmdPath(source),MorphMapPath=mapPath});
+                string original = PmxAnimationClipBaker.ToPhysicalPath(source);
+                string prepared = ikBatch.Prepare(original, ikModel, GetMotionIkSettings(source, modelPath).Items);
+                string expression = GetExpressionPhysicalVmdPath(source);
+                if (string.Equals(original, expression, StringComparison.OrdinalIgnoreCase)) expression = prepared;
+                jobs.Add(new VmdStandaloneAnimJob {VmdPath=prepared,OutputPath=Path.Combine(folder,jobs.Count.ToString(),Path.GetFileName(output)),
+                    ExpressionVmdPath=expression,MorphMapPath=mapPath});
                 outputs.Add(output);
             }
             if(jobs.Count==0)return;
@@ -1210,8 +1324,18 @@ internal sealed class VmdConverterPage : ConverterFeaturePage
         var cancellation = new CancellationTokenSource();
         bool assetEditing = false;
         var active = new List<ManagedPreparationJob>();
+        using var ikBatch = new VmdIkOverrideBatch();
         try
         {
+            PmxModel ikModel = PmxModelCache.Load(modelPath);
+            foreach (ManagedPreparationJob job in pending)
+            {
+                string original = job.PhysicalPath;
+                job.PhysicalPath = ikBatch.Prepare(original, ikModel,
+                    GetMotionIkSettings(job.AssetPath, modelPath).Items);
+                if (string.Equals(job.ExpressionPhysicalPath, original, StringComparison.OrdinalIgnoreCase))
+                    job.ExpressionPhysicalPath = job.PhysicalPath;
+            }
 #if VMDCW_HAS_VMDCC
             if (forceExternalPose || useExternalWorker)
             {
@@ -1663,7 +1787,9 @@ internal sealed class VmdConverterPage : ConverterFeaturePage
 
     private void EnsureConvertedMotionResourcesLoaded()
     {
-        if (!convertedMotionResourcesDirty && convertedMotionEntries != null) return;
+        if (!convertedMotionResourcesDirty && convertedMotionEntries != null &&
+            convertedMotionEntries.All(entry => entry != null && entry.Data != null))
+            return;
         convertedMotionResourcesDirty = false;
         if (convertedMotionEntries == null)
             convertedMotionEntries = new List<ConvertedMotionEntry>();
@@ -1743,6 +1869,8 @@ internal sealed class VmdConverterPage : ConverterFeaturePage
 
     private void DestroyTransientMotionData()
     {
+        convertedMotionEntries?.Clear();
+        convertedMotionResourcesDirty = true;
         if (transientMotionData == null) return;
         foreach (VmdMotionConversionData data in transientMotionData.Values)
             if (data != null) UnityEngine.Object.DestroyImmediate(data);

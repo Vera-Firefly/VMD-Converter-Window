@@ -8,6 +8,10 @@ using VeraFirefly.VmdConverter.Core.Editor;
 internal static class VmdCameraConverter
 {
     private const float VmdFrameRate = 30f;
+    // Errors are measured against the original piecewise-linear 30 FPS bake.
+    private const float PositionComponentError = 0.00005f;
+    private const float RotationComponentError = 0.00001f;
+    private const float FieldOfViewError = 0.005f;
     private static readonly Quaternion MmdToUnityRotation = Quaternion.Euler(0f, 180f, 0f);
 
     internal static string GetOutputPath(string sourcePath, string outputFolder)
@@ -51,7 +55,8 @@ internal static class VmdCameraConverter
             string outputAssetPath,
             float scale,
             Action<float, string> progress = null,
-            bool deferAssetImport = false)
+            bool deferAssetImport = false,
+            bool reduceKeys = true)
         {
             if (string.IsNullOrEmpty(sourceAssetPath) || !sourceAssetPath.StartsWith("Assets/", StringComparison.Ordinal))
                 throw new ArgumentException("VMD 必须位于当前 Unity 项目的 Assets 目录中。", nameof(sourceAssetPath));
@@ -79,6 +84,8 @@ internal static class VmdCameraConverter
                 scale,
                 Path.GetFileNameWithoutExtension(outputAssetPath),
                 progress);
+            if (reduceKeys)
+                ReduceCameraCurves(clip, frames, progress);
             AnimationClipSettings settings = AnimationUtility.GetAnimationClipSettings(clip);
             settings.loopTime = false;
             AnimationUtility.SetAnimationClipSettings(clip, settings);
@@ -106,7 +113,8 @@ internal static class VmdCameraConverter
 
             Debug.Log(
                 $"MMD Camera VMD converted: {sourceAssetPath} -> {outputAssetPath}, " +
-                $"{frames.Count} source keys, {frames[frames.Count - 1].Frame + 1} baked frames, scale {scale:0.######}");
+                $"{frames.Count} source keys, {frames[frames.Count - 1].Frame + 1} sampled frames, " +
+                $"{CountCurveKeys(result)} curve keys, scale {scale:0.######}");
             return result;
         }
 
@@ -231,10 +239,13 @@ internal static class VmdCameraConverter
                 AnimationCurve curve = AnimationUtility.GetEditorCurve(clip, binding);
                 if (curve == null) continue;
 
-                foreach (int leftIndex in cameraCuts)
+                var indicesByFrame = new Dictionary<int, int>();
+                for (int index = 0; index < curve.length; index++)
+                    indicesByFrame[Mathf.RoundToInt(curve[index].time * VmdFrameRate)] = index;
+                foreach (int leftFrame in cameraCuts)
                 {
-                    int rightIndex = leftIndex + 1;
-                    if (leftIndex < 0 || rightIndex >= curve.length) continue;
+                    if (!indicesByFrame.TryGetValue(leftFrame, out int leftIndex) ||
+                        !indicesByFrame.TryGetValue(leftFrame + 1, out int rightIndex)) continue;
 
                     AnimationUtility.SetKeyBroken(curve, leftIndex, true);
                     AnimationUtility.SetKeyRightTangentMode(
@@ -250,6 +261,94 @@ internal static class VmdCameraConverter
                 }
 
                 AnimationUtility.SetEditorCurve(clip, binding, curve);
+            }
+        }
+
+        private static int CountCurveKeys(AnimationClip clip)
+        {
+            int count = 0;
+            foreach (EditorCurveBinding binding in AnimationUtility.GetCurveBindings(clip))
+                count += AnimationUtility.GetEditorCurve(clip, binding).length;
+            return count;
+        }
+
+        private static void ReduceCameraCurves(AnimationClip clip, IReadOnlyList<CameraFrame> frames,
+            Action<float, string> progress)
+        {
+            int count = checked((int)frames[frames.Count - 1].Frame + 1);
+            var anchors = new SortedSet<int> { 0, count - 1 };
+            foreach (CameraFrame frame in frames) anchors.Add(checked((int)frame.Frame));
+            int[] boundaries = new int[anchors.Count];
+            anchors.CopyTo(boundaries);
+
+            ReduceLinearGroup(clip, typeof(Transform), new[] {
+                "m_LocalPosition.x", "m_LocalPosition.y", "m_LocalPosition.z" },
+                boundaries, PositionComponentError, progress);
+            // All four quaternion components use the same retained times. Their
+            // signs were made continuous before reduction, including complete turns.
+            ReduceLinearGroup(clip, typeof(Transform), new[] {
+                "m_LocalRotation.x", "m_LocalRotation.y", "m_LocalRotation.z", "m_LocalRotation.w" },
+                boundaries, RotationComponentError, progress);
+            ReduceLinearGroup(clip, typeof(Camera), new[] { "field of view" },
+                boundaries, FieldOfViewError, progress);
+
+            EditorCurveBinding projectionBinding = EditorCurveBinding.FloatCurve(
+                string.Empty, typeof(Camera), "orthographic");
+            Keyframe[] projection = AnimationUtility.GetEditorCurve(clip, projectionBinding).keys;
+            var projectionKeys = new List<Keyframe> { projection[0] };
+            for (int index = 1; index < projection.Length; index++)
+                if (projection[index].value != projection[index - 1].value || index == projection.Length - 1)
+                    projectionKeys.Add(projection[index]);
+            SetConstantCurve(clip, typeof(Camera), "orthographic", projectionKeys.ToArray());
+            ApplyCameraCutTangents(clip, FindCameraCuts(frames));
+        }
+
+        private static void ReduceLinearGroup(AnimationClip clip, Type type, string[] properties,
+            int[] boundaries, float tolerance, Action<float, string> progress)
+        {
+            var channels = new Keyframe[properties.Length][];
+            for (int channel = 0; channel < properties.Length; channel++)
+                channels[channel] = AnimationUtility.GetEditorCurve(clip,
+                    EditorCurveBinding.FloatCurve(string.Empty, type, properties[channel])).keys;
+            var keep = new bool[channels[0].Length];
+            foreach (int boundary in boundaries) keep[boundary] = true;
+            var ranges = new Stack<Vector2Int>();
+            for (int index = 1; index < boundaries.Length; index++)
+                ranges.Push(new Vector2Int(boundaries[index - 1], boundaries[index]));
+            int work = 0;
+            while (ranges.Count > 0)
+            {
+                Vector2Int range = ranges.Pop();
+                int start = range.x, end = range.y;
+                if (end - start < 2) continue;
+                float startTime = channels[0][start].time;
+                float duration = channels[0][end].time - startTime;
+                int split = -1;
+                float largestError = tolerance;
+                for (int index = start + 1; index < end; index++)
+                {
+                    float factor = (channels[0][index].time - startTime) / duration;
+                    for (int channel = 0; channel < channels.Length; channel++)
+                    {
+                        float expected = Mathf.LerpUnclamped(channels[channel][start].value,
+                            channels[channel][end].value, factor);
+                        float error = Mathf.Abs(channels[channel][index].value - expected);
+                        if (error > largestError) { largestError = error; split = index; }
+                    }
+                    if ((++work & 16383) == 0)
+                        progress?.Invoke(0.93f, "Reducing camera curve keys");
+                }
+                if (split < 0) continue;
+                keep[split] = true;
+                ranges.Push(new Vector2Int(start, split));
+                ranges.Push(new Vector2Int(split, end));
+            }
+            for (int channel = 0; channel < channels.Length; channel++)
+            {
+                var keys = new List<Keyframe>();
+                for (int index = 0; index < keep.Length; index++)
+                    if (keep[index]) keys.Add(channels[channel][index]);
+                SetLinearCurve(clip, type, properties[channel], keys.ToArray());
             }
         }
 

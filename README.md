@@ -20,9 +20,13 @@ When VRCSDK is present, an active Avatar Descriptor can identify the target. Oth
 
 Retarget Source Skeleton offers Built-in, Manual and From Folder. Built-in uses the bundled PMX skeleton. Manual accepts a `.pmx` in Select Target (PMX Skeleton). From Folder accepts a project folder in Target Folder and lists its PMX files, including subfolders. The default folder is `Assets/VmdConverter/PMX`.
 
+IK Switching appears above Model BlendShape Mapping and groups the selected PMX's IK chains by motion. Each entry defaults to Follow VMD, with Force On and Force Off overrides; selections are saved separately for each motion and source skeleton. Follow VMD defaults to enabled when no matching switch key exists. Settings are baked into the `.anim`; convert again after changing them. Source VMD files are preserved.
+
 The VPD page offers the same nine output modes and source skeleton choices, exporting one pose `.anim` per VPD. Target Humanoid and FK modes require a valid Humanoid in Avatar GameObject. For standard Humanoid output, the Avatar is optional and supplies morph mappings. Output folders, folder drop fields and automatic default folder creation follow the motion page.
 
 ## Conversion routes
+
+Camera conversion enables Reduce Keyframes by default. It samples at 30 FPS, then reduces curves while preserving source keys, cuts and projection switches. Relative to the per-frame curves, tolerances are `0.00005` Unity units per position component, `0.00001` per quaternion component and `0.005°` for field of view. Disable it for per-frame output. Reduction primarily saves animation size; sampling is still required.
 
 - Built-in: prepare PMX/VMD and IK in-process, then bake through Unity HumanPoseHandler or target Transforms.
 - Core default: the EXE prepares raw PMX/IK poses; Unity validates the cache and bakes final Humanoid or target FK curves.

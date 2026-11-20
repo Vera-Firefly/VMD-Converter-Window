@@ -1,5 +1,16 @@
 # Changelog / 更新记录
 
+## Unreleased
+
+- 修复编辑器清理未使用资源或重新打开窗口后，动作形态键映射可能持续报空引用的问题。
+- Fixed repeated null-reference errors in motion morph mappings after editor asset cleanup or reopening the window.
+
+- 动作页新增按动作分组的“IK切换”，根据源 PMX 列出 IK，支持跟随 VMD、强制开启、强制关闭，并应用于内置及 Core 转换。
+- Added per-motion IK switches from the source PMX, with Follow VMD, Force On and Force Off options for built-in and Core conversion.
+
+- 镜头转换新增默认启用的关键帧精简，按误差限减少冗余曲线，保留原始关键帧、切镜及投影切换；可关闭以逐帧输出。
+- Added camera keyframe reduction, enabled by default, with bounded curve error and preserved source keys, cuts and projection switches. It can be disabled for per-frame output.
+
 ## 1.1.0 — 2026-11-17
 
 - VPD 转换页对齐动作页的九种输出模式、Avatar 与源骨架选择、默认输出目录及分隔布局。

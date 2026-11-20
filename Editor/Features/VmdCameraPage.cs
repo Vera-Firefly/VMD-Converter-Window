@@ -14,6 +14,7 @@ internal sealed class VmdCameraPage : ConverterFeaturePage
     [SerializeField] private MotionStorageLocation cameraOutputStorageLocation;
     [SerializeField] private string customCameraOutputStorageFolder = DefaultMotionStorageFolder;
     [SerializeField] private float unitScale = 0.08f;
+    [SerializeField] private bool reduceCameraKeys = true;
 
     internal void OnEnable(ConverterWindowContext context, DefaultAsset selected, bool acceptSelection)
     {
@@ -70,6 +71,12 @@ internal sealed class VmdCameraPage : ConverterFeaturePage
                     "Use 0.08 for VRChat, or 1 for original MMD units.",
                     "VRChat は通常 0.08、MMD の元単位は 1。")),
             unitScale));
+
+        reduceCameraKeys = EditorGUILayout.Toggle(new GUIContent(
+            L("精简关键帧", "Reduce Keyframes", "キーフレーム削減"),
+            L("精简静止和近似线性曲线，保留原始关键帧、切镜和投影切换。关闭后逐帧输出。",
+                "Reduce static and nearly linear curves while preserving source keys, cuts and projection changes. Disable for per-frame output.",
+                "元キー、カット、投影切替を保持してキーを削減します。オフで毎フレーム出力します。")), reduceCameraKeys);
 
         int cameraFileCount = GetVmdAssetPaths(cameraVmdAssets).Count;
         EditorGUILayout.LabelField(
@@ -227,7 +234,7 @@ internal sealed class VmdCameraPage : ConverterFeaturePage
                 };
 
                 lastClip = VmdCameraConverter.ConvertToAsset(
-                    sourcePath, outputPath, unitScale, progress, true);
+                    sourcePath, outputPath, unitScale, progress, true, reduceCameraKeys);
                 lastOutputPath = outputPath;
                 writtenPaths.Add(outputPath);
                 converted++;

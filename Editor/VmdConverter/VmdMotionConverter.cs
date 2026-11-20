@@ -276,6 +276,9 @@ internal static class VmdMotionConverter
     {
         ValidateAssetPath(vmdPath, ".vmd", "VMD");
         var data = ScriptableObject.CreateInstance<VmdMotionConversionData>();
+        // The page owns this in-memory data and disposes it when closed. Keep
+        // Unity's unused-asset cleanup from destroying it behind the cache.
+        data.hideFlags = HideFlags.HideAndDontSave;
         data.name = Path.GetFileNameWithoutExtension(vmdPath) + "_Direct";
         data.dataVersion = VmdMotionConversionData.CurrentDataVersion;
         data.isConverted = false;
@@ -448,10 +451,11 @@ internal static class VmdMotionConverter
         string modelPath,
         ModelParserMethod parserMethod,
         float curveReductionError,
-        out List<VmdMotionConversionData.MorphRecord> morphs)
+        out List<VmdMotionConversionData.MorphRecord> morphs,
+        string preparedVmdPath = null)
     {
         AnimationClip clip = ConvertMotionClip(
-            vmdPath,
+            preparedVmdPath ?? vmdPath,
             modelPath,
             parserMethod,
             Mathf.Clamp(curveReductionError, 0f, 0.001f),

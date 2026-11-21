@@ -1,6 +1,6 @@
 # Changelog / 更新记录
 
-## Unreleased
+## 1.1.1 — 2026-11-21
 
 - 修复编辑器清理未使用资源或重新打开窗口后，动作形态键映射可能持续报空引用的问题。
 - Fixed repeated null-reference errors in motion morph mappings after editor asset cleanup or reopening the window.
